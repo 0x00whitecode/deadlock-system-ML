@@ -1,4 +1,3 @@
-# Import Libraries
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -51,7 +50,6 @@ def generate_transaction_data(n_transactions=300, n_processes=10, deadlock_rate=
     transaction_types = ['Read', 'Write', 'Update']
     priority_levels = ['Low', 'Medium', 'High']
     
-    # Generate random data for transactions
     data = {
         'Transaction_ID': np.random.choice(transactions, n_transactions),
         'Process_ID': np.random.choice(processes, n_transactions),
@@ -59,31 +57,28 @@ def generate_transaction_data(n_transactions=300, n_processes=10, deadlock_rate=
         'Resource_Waiting': np.random.choice(resources, n_transactions),
         'Status': np.random.choice(['Running', 'Waiting'], n_transactions),
         'Timestamp': pd.date_range("2024-11-01", periods=n_transactions, freq='H') + pd.to_timedelta(np.random.randint(0, 3600, n_transactions), unit='s'),
-        'Transaction_Duration': np.random.randint(1, 300, n_transactions),  # Duration in seconds
+        'Transaction_Duration': np.random.randint(1, 300, n_transactions),
         'Resource_Request_Type': np.random.choice(['Read', 'Write'], n_transactions),
         'Priority_Level': np.random.choice(priority_levels, n_transactions),
         'Transaction_Type': np.random.choice(transaction_types, n_transactions),
-        'Resource_Queue_Position': np.random.randint(1, 10, n_transactions)  # Simulated queue position
+        'Resource_Queue_Position': np.random.randint(1, 10, n_transactions)
     }
     
-    # Create a DataFrame for the generated data
     df = pd.DataFrame(data)
     
-    # Introduce deadlocks: create a set of transactions that will form a deadlock loop
-    num_deadlocks = int(n_transactions * deadlock_rate)  # Specify the deadlock rate
+    # Introduce deadlocks
+    num_deadlocks = int(n_transactions * deadlock_rate)
     deadlock_transactions = np.random.choice(df['Transaction_ID'].unique(), num_deadlocks, replace=False)
-    
-    # Mark the transactions involved in deadlocks
     deadlock_data = df[df['Transaction_ID'].isin(deadlock_transactions)]
     
-    # Create a circular deadlock by forcing 'Waiting' status with circular resource dependencies
+    # Create circular deadlocks
     for i in range(0, len(deadlock_data) - 1, 2):
         df.loc[df['Transaction_ID'] == deadlock_data.iloc[i]['Transaction_ID'], 'Resource_Waiting'] = deadlock_data.iloc[i + 1]['Resource_Aquired']
         df.loc[df['Transaction_ID'] == deadlock_data.iloc[i + 1]['Transaction_ID'], 'Resource_Waiting'] = deadlock_data.iloc[i]['Resource_Aquired']
         df.loc[df['Transaction_ID'] == deadlock_data.iloc[i]['Transaction_ID'], 'Status'] = 'Waiting'
         df.loc[df['Transaction_ID'] == deadlock_data.iloc[i + 1]['Transaction_ID'], 'Status'] = 'Waiting'
     
-    # Add a 'Deadlock_Label' column to indicate transactions involved in deadlocks
+    # Add Deadlock Label
     df['Deadlock_Label'] = df['Transaction_ID'].apply(lambda x: 1 if x in deadlock_transactions else 0)
     
     return df
@@ -142,40 +137,45 @@ st.subheader("Detected Deadlocks")
 st.write(f"Number of Deadlocks Detected: {len(deadlocks)}")
 st.write(f"Detected Cycles: {deadlocks}")
 
-# Visualize the Resource Allocation Network (Deadlock View)
-def plot_deadlock_network(G):
-    node_trace = go.Scatter(
-        x=[], y=[], text=[], mode='markers+text',
-        marker=dict(size=10, color=[]), hoverinfo='text'
+# Visualize the Resource Allocation Network (Deadlock View) in 3D
+def plot_deadlock_network_3d(G):
+    node_trace = go.Scatter3d(
+        x=[], y=[], z=[], text=[], mode='markers+text',
+        marker=dict(size=10, color=[], opacity=0.8), hoverinfo='text'
     )
-    edge_trace = go.Scatter(
-        x=[], y=[], line=dict(width=1, color='white'),
+    edge_trace = go.Scatter3d(
+        x=[], y=[], z=[], line=dict(width=1, color='white'),
         hoverinfo='none', mode='lines'
     )
     
-    pos = nx.spring_layout(G)
-    for node, (x, y) in pos.items():
+    # Generate 3D layout positions using spring layout
+    pos = nx.spring_layout(G, dim=3)  # 3D layout
+    for node, (x, y, z) in pos.items():
         node_trace['x'] += (x,)
         node_trace['y'] += (y,)
+        node_trace['z'] += (z,)
         node_trace['marker']['color'] += ('blue' if 'R_' in node else 'orange',)
         node_trace['text'] += (node,)
     
     for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
+        x0, y0, z0 = pos[edge[0]]
+        x1, y1, z1 = pos[edge[1]]
         edge_trace['x'] += (x0, x1, None)
         edge_trace['y'] += (y0, y1, None)
+        edge_trace['z'] += (z0, z1, None)
     
     fig_network = go.Figure(data=[edge_trace, node_trace])
     fig_network.update_layout(
-        title="Resource Allocation Network (Deadlock View)",
+        title="3D Resource Allocation Network (Deadlock View)",
         showlegend=False, hovermode='closest',
-        plot_bgcolor='white', xaxis=dict(showgrid=False, zeroline=False),
-        yaxis=dict(showgrid=False, zeroline=False)
+        scene=dict(xaxis=dict(showgrid=False, zeroline=False),
+                   yaxis=dict(showgrid=False, zeroline=False),
+                   zaxis=dict(showgrid=False, zeroline=False)),
+        plot_bgcolor='white'
     )
     st.plotly_chart(fig_network)
 
-plot_deadlock_network(G)
+plot_deadlock_network_3d(G)
 
 # Model Evaluation
 st.subheader("Model Evaluation")
@@ -187,15 +187,20 @@ st.json(report)
 # Confusion Matrix
 fig, ax = plt.subplots()
 sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=['No Deadlock', 'Deadlock'], yticklabels=['No Deadlock', 'Deadlock'])
-plt.xlabel("Predicted Label")
-plt.ylabel("True Label")
-plt.title("Confusion Matrix")
+ax.set_xlabel('Predicted')
+ax.set_ylabel('Actual')
 st.pyplot(fig)
 
-# Feature Importance (for Random Forest)
-if model_type == "Random Forest":
-    importance = clf.feature_importances_
-    feature_importance = pd.DataFrame({'Feature': X.columns, 'Importance': importance})
-    feature_importance = feature_importance.sort_values(by='Importance', ascending=False)
-    st.subheader("Feature Importance")
-    st.dataframe(feature_importance)
+# Transaction Counts Visualization
+st.subheader("Transaction Counts by Status")
+status_counts = df_transactions['Status'].value_counts()
+fig_status = go.Figure(data=[go.Bar(x=status_counts.index, y=status_counts.values)])
+fig_status.update_layout(title="Transaction Counts by Status", xaxis_title="Status", yaxis_title="Count")
+st.plotly_chart(fig_status)
+
+# Summary Report Visualization
+st.subheader("Summary Report")
+st.write(f"Total Transactions: {len(df_transactions)}")
+st.write(f"Transactions Running: {df_transactions[df_transactions['Status'] == 'Running'].shape[0]}")
+st.write(f"Transactions Waiting: {df_transactions[df_transactions['Status'] == 'Waiting'].shape[0]}")
+st.write(f"Detected Deadlocks: {len(deadlocks)}")
